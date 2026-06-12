@@ -1,6 +1,6 @@
 # ModelGenerator
 
-IEC 61850 SCL model code generator — a Go port of the Java-based `model_generator` tool from [libIEC61850](https://github.com/mz-automation/libiec61850).
+IEC 61850 SCL model code generator - a Go port of the Java-based `model_generator` tool from [libIEC61850](https://github.com/mz-automation/libiec61850).
 
 ## Overview
 
@@ -25,7 +25,7 @@ go build -o modelgenerator .
 
 ## Usage
 
-### genmodel — Static C model
+### genmodel - Static C model
 
 Generates a `.c` and `.h` file pair with pre-initialized C structs for direct linking into a libIEC61850 application.
 
@@ -47,7 +47,7 @@ modelgenerator genmodel device.icd -out static_model
 # produces static_model.c and static_model.h
 ```
 
-### genconfig — Dynamic text model
+### genconfig - Dynamic text model
 
 Generates a text-format model configuration file consumed by libIEC61850's dynamic model loader.
 
@@ -65,7 +65,7 @@ Example:
 modelgenerator genconfig device.icd model.cfg
 ```
 
-### gencode — Dynamic C stubs
+### gencode - Dynamic C stubs
 
 Generates C helper functions (`LN_*_createInstance`, `DO_*_createInstance`, `DA_*_createInstance`) for building a model at runtime.
 
@@ -79,7 +79,7 @@ Example:
 modelgenerator gencode device.icd model_stubs.c
 ```
 
-### viewmodel — Model inspection
+### viewmodel - Model inspection
 
 Prints a human-readable view of the IEC 61850 data model parsed from an SCL file.
 
@@ -107,7 +107,7 @@ modelgenerator viewmodel device.icd -a
 .
 ├── main.go                         # CLI entry point, command dispatch
 ├── parser/
-│   └── parser.go                   # SclParser — top-level SCL file parser
+│   └── parser.go                   # SclParser - top-level SCL file parser
 ├── scl/
 │   ├── xml_node.go                 # XML DOM representation
 │   ├── parser_utils.go             # Attribute parsing helpers
@@ -154,7 +154,7 @@ Java's `ParserUtils.parseAttribute()` returns `null` when an XML attribute is ab
 
 The one place where this distinction matters is `LN0` (Logical Node Zero), which legitimately carries `inst=""` in IEC 61850. The Java guard `if (inst == null)` allows the empty string through; the Go port explicitly exempts `lnClass == "LLN0"` from the non-empty `inst` requirement.
 
-Similarly, `LogControl.logName` may be present in SCL with an empty value — Java nullifies it and continues; Go uses `ParseAttributePtr` to distinguish truly absent (error) from present-with-empty (treated as no log name).
+Similarly, `LogControl.logName` may be present in SCL with an empty value - Java nullifies it and continues; Go uses `ParseAttributePtr` to distinguish truly absent (error) from present-with-empty (treated as no log name).
 
 **No import cycles**
 
@@ -162,7 +162,7 @@ The Java codebase has no module boundary between the parser and the model. In Go
 
 **Nullable integers**
 
-Java uses boxed `Integer` (nullable) for optional integer fields such as `ReportControlBlock.intgPd`. Go uses `*int` (pointer to int) for the same semantics — `nil` means the attribute was absent.
+Java uses boxed `Integer` (nullable) for optional integer fields such as `ReportControlBlock.intgPd`. Go uses `*int` (pointer to int) for the same semantics - `nil` means the attribute was absent.
 
 **GSE / SMV min/max time**
 
@@ -171,7 +171,7 @@ Java uses `-1` as the sentinel for "not set" on `GSE.minTime` / `GSE.maxTime`. T
 ## License
 
 Copyright 2014-2024 Michael Zillgith  
-Copyright 2026 Pavel Konovalov — Golang port
+Copyright 2026 Pavel Konovalov - Golang port
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
