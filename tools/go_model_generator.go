@@ -151,94 +151,67 @@ func (g *goModelGen) emitDO(do *model.DataObject, lnVar string) {
 
 func (g *goModelGen) emitDOContent(do *model.DataObject, doVar string) {
 	for _, da := range do.GetDataAttributes() {
-		g.emitDA(da, doVar, "")
+		g.emitTopLevelDA(da, doVar)
 	}
 	for _, subDO := range do.GetSubDataObjects() {
-		_ = subDO
-		// Sub-DataObjects are not directly supported in the Go library model;
-		// their DAs are emitted at this DO level with compound names.
 		for _, da := range subDO.GetDataAttributes() {
-			g.emitDA(da, doVar, subDO.GetName())
+			g.emitTopLevelDA(da, doVar)
 		}
 	}
 }
 
-func (g *goModelGen) emitDA(da *model.DataAttribute, doVar string, namePrefix string) {
+// emitTopLevelDA emits a DA that is a direct child of a DataObject.
+func (g *goModelGen) emitTopLevelDA(da *model.DataAttribute, parentVar string) {
+	fc := da.GetFC()
+	name := da.GetName()
 	if da.IsBasicAttribute() {
-		g.emitLeafDA(da, doVar, namePrefix, da.GetFC())
+		daVar := g.newVar("da")
+		fmt.Fprintf(g.w, "\t%s := imodel.NewDataAttribute(%q, %s, %s, %s)\n",
+			daVar, name, fcToGoConst(fc), atTypeToGoType(da.GetType()), parentVar)
+		if t := triggerOptToGoConst(da.GetTriggerOptions()); t != "" {
+			fmt.Fprintf(g.w, "\t%s.TriggerOptions = %s\n", daVar, t)
+		}
+		g.emitInitValue(daVar, da.GetType(), da.GetEffectiveValue(g.td))
 	} else {
-		// CONSTRUCTED: descend into sub-DAs
-		subs := da.GetSubDataAttributes()
-		if len(subs) == 1 {
-			// Single sub-DA: keep parent name
-			g.emitSubDA(subs[0], doVar, namePrefix, da.GetName(), da.GetFC())
-		} else {
-			// Multiple sub-DAs: compound names
-			for _, sub := range subs {
-				prefix := da.GetName()
-				if namePrefix != "" {
-					prefix = namePrefix + "_" + prefix
-				}
-				g.emitSubDA(sub, doVar, prefix, "", da.GetFC())
-			}
+		// CONSTRUCTED: emit the DA with TypeConstructed, then recurse into sub-DAs.
+		daVar := g.newVar("da")
+		fmt.Fprintf(g.w, "\t%s := imodel.NewDataAttribute(%q, %s, common.TypeConstructed, %s)\n",
+			daVar, name, fcToGoConst(fc), parentVar)
+		if t := triggerOptToGoConst(da.GetTriggerOptions()); t != "" {
+			fmt.Fprintf(g.w, "\t%s.TriggerOptions = %s\n", daVar, t)
+		}
+		for _, sub := range da.GetSubDataAttributes() {
+			g.emitSubDA(sub, daVar, fc)
 		}
 	}
 }
 
-// emitSubDA handles a sub-DA of a CONSTRUCTED parent.
-func (g *goModelGen) emitSubDA(da *model.DataAttribute, doVar string, namePrefix string, parentName string, parentFC model.FunctionalConstraint) {
-	// Sub-DAs may not have their own FC set; inherit from parent
+// emitSubDA emits a sub-DA (child of a CONSTRUCTED DataAttribute), using NewSubDataAttribute.
+func (g *goModelGen) emitSubDA(da *model.DataAttribute, parentVar string, parentFC model.FunctionalConstraint) {
 	fc := da.GetFC()
 	if fc == model.FC_NONE {
 		fc = parentFC
 	}
-
-	effectiveName := da.GetName()
-	if parentName != "" {
-		effectiveName = parentName
-	}
-	if namePrefix != "" {
-		effectiveName = namePrefix + "_" + effectiveName
-	}
-
+	name := da.GetName()
 	if da.IsBasicAttribute() {
 		daVar := g.newVar("da")
-		goType := atTypeToGoType(da.GetType())
-		goFC := fcToGoConst(fc)
-		trgOpts := triggerOptToGoConst(da.GetTriggerOptions())
-		fmt.Fprintf(g.w, "\t%s := imodel.NewDataAttribute(%q, %s, %s, %s)\n",
-			daVar, effectiveName, goFC, goType, doVar)
-		if trgOpts != "" {
-			fmt.Fprintf(g.w, "\t%s.TriggerOptions = %s\n", daVar, trgOpts)
+		fmt.Fprintf(g.w, "\t%s := imodel.NewSubDataAttribute(%q, %s, %s, %s)\n",
+			daVar, name, fcToGoConst(fc), atTypeToGoType(da.GetType()), parentVar)
+		if t := triggerOptToGoConst(da.GetTriggerOptions()); t != "" {
+			fmt.Fprintf(g.w, "\t%s.TriggerOptions = %s\n", daVar, t)
 		}
 		g.emitInitValue(daVar, da.GetType(), da.GetEffectiveValue(g.td))
 	} else {
-		subs := da.GetSubDataAttributes()
-		if len(subs) == 1 {
-			g.emitSubDA(subs[0], doVar, namePrefix, effectiveName, fc)
-		} else {
-			for _, sub := range subs {
-				g.emitSubDA(sub, doVar, effectiveName, "", fc)
-			}
+		daVar := g.newVar("da")
+		fmt.Fprintf(g.w, "\t%s := imodel.NewSubDataAttribute(%q, %s, common.TypeConstructed, %s)\n",
+			daVar, name, fcToGoConst(fc), parentVar)
+		if t := triggerOptToGoConst(da.GetTriggerOptions()); t != "" {
+			fmt.Fprintf(g.w, "\t%s.TriggerOptions = %s\n", daVar, t)
+		}
+		for _, sub := range da.GetSubDataAttributes() {
+			g.emitSubDA(sub, daVar, fc)
 		}
 	}
-}
-
-func (g *goModelGen) emitLeafDA(da *model.DataAttribute, doVar string, namePrefix string, fc model.FunctionalConstraint) {
-	name := da.GetName()
-	if namePrefix != "" {
-		name = namePrefix + "_" + name
-	}
-	daVar := g.newVar("da")
-	goType := atTypeToGoType(da.GetType())
-	goFC := fcToGoConst(fc)
-	trgOpts := triggerOptToGoConst(da.GetTriggerOptions())
-	fmt.Fprintf(g.w, "\t%s := imodel.NewDataAttribute(%q, %s, %s, %s)\n",
-		daVar, name, goFC, goType, doVar)
-	if trgOpts != "" {
-		fmt.Fprintf(g.w, "\t%s.TriggerOptions = %s\n", daVar, trgOpts)
-	}
-	g.emitInitValue(daVar, da.GetType(), da.GetEffectiveValue(g.td))
 }
 
 func (g *goModelGen) emitInitValue(daVar string, atType model.AttributeType, val *model.DataModelValue) {
