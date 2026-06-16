@@ -99,6 +99,12 @@ func RunGoModelGenerator(r io.Reader, output io.Writer, packageName, iedName, ac
 			for _, ds := range ln.GetDataSets() {
 				g.emitDataSet(ds, ldVar, lnVar, ld.GetInst(), ln.GetName())
 			}
+
+			for _, rcb := range ln.GetReportControlBlocks() {
+				if rcb.IsBuffered() {
+					g.emitBufferedRCB(rcb, ld.GetInst(), ln.GetName())
+				}
+			}
 		}
 	}
 
@@ -164,6 +170,7 @@ func (g *goModelGen) emitDOContent(do *model.DataObject, doVar string) {
 func (g *goModelGen) emitTopLevelDA(da *model.DataAttribute, parentVar string) {
 	fc := da.GetFC()
 	name := da.GetName()
+	count := da.GetCount()
 	if da.IsBasicAttribute() {
 		daVar := g.newVar("da")
 		fmt.Fprintf(g.w, "\t%s := imodel.NewDataAttribute(%q, %s, %s, %s)\n",
@@ -171,7 +178,12 @@ func (g *goModelGen) emitTopLevelDA(da *model.DataAttribute, parentVar string) {
 		if t := triggerOptToGoConst(da.GetTriggerOptions()); t != "" {
 			fmt.Fprintf(g.w, "\t%s.TriggerOptions = %s\n", daVar, t)
 		}
-		g.emitInitValue(daVar, da.GetType(), da.GetEffectiveValue(g.td))
+		if count > 1 {
+			fmt.Fprintf(g.w, "\t%s.ElementCount = %d\n", daVar, count)
+			g.emitArrayValue(daVar, da.GetType(), count)
+		} else {
+			g.emitInitValue(daVar, da.GetType(), da.GetEffectiveValue(g.td))
+		}
 	} else {
 		// CONSTRUCTED: emit the DA with TypeConstructed, then recurse into sub-DAs.
 		daVar := g.newVar("da")
@@ -289,6 +301,114 @@ func (g *goModelGen) emitDefaultValue(daVar string, atType model.AttributeType) 
 		// no default value for unknown types
 		fmt.Fprintf(g.w, "\t_ = %s // TODO: set initial value for type %v\n", daVar, atType)
 	}
+}
+
+func (g *goModelGen) emitArrayValue(daVar string, atType model.AttributeType, count int) {
+	var elemExpr string
+	switch atType {
+	case model.AT_BOOLEAN:
+		elemExpr = "mms.NewBoolean(false)"
+	case model.AT_INT8, model.AT_INT16, model.AT_INT32, model.AT_ENUMERATED:
+		elemExpr = "mms.NewInt32(0)"
+	case model.AT_INT64, model.AT_INT128:
+		elemExpr = "mms.NewInt64(0)"
+	case model.AT_INT8U, model.AT_INT16U, model.AT_INT24U, model.AT_INT32U:
+		elemExpr = "mms.NewUint32(0)"
+	case model.AT_FLOAT32:
+		elemExpr = "mms.NewFloat32(0)"
+	case model.AT_FLOAT64:
+		elemExpr = "mms.NewFloat64(0)"
+	case model.AT_TIMESTAMP, model.AT_ENTRY_TIME:
+		elemExpr = "mms.NewUTCTime(mms.UTCTime{})"
+	case model.AT_VISIBLE_STRING_32, model.AT_VISIBLE_STRING_64, model.AT_VISIBLE_STRING_65,
+		model.AT_VISIBLE_STRING_129, model.AT_VISIBLE_STRING_255, model.AT_UNICODE_STRING_255:
+		elemExpr = `mms.NewVisibleString("")`
+	case model.AT_OCTET_STRING_6, model.AT_OCTET_STRING_8, model.AT_OCTET_STRING_64:
+		elemExpr = "mms.NewOctetString(nil)"
+	default:
+		elemExpr = "mms.NewVisibleString(\"\")"
+	}
+	fmt.Fprintf(g.w, "\t{\n\t\telems := make([]*mms.Value, %d)\n", count)
+	fmt.Fprintf(g.w, "\t\tfor i := range elems { elems[i] = %s }\n", elemExpr)
+	fmt.Fprintf(g.w, "\t\t%s.Value = mms.NewArray(elems)\n\t}\n", daVar)
+}
+
+func (g *goModelGen) emitBufferedRCB(rcb *model.ReportControlBlock, ldInst, lnName string) {
+	maxInstances := 1
+	if rcb.IsIndexed() && rcb.GetRptEna() != nil {
+		maxInstances = rcb.GetRptEna().GetMaxInstances()
+	}
+
+	trgOps := 0
+	if rcb.GetTriggerOptions() != nil {
+		trgOps = rcb.GetTriggerOptions().GetIntValue()
+	}
+	optFields := 0
+	if rcb.GetOptionFields() != nil {
+		optFields = rcb.GetOptionFields().GetIntValue()
+	}
+	confRev := int64(0)
+	if cr := rcb.GetConfRef(); cr != nil {
+		confRev = *cr
+	}
+	intgPd := int64(0)
+	if ip := rcb.GetIntegrityPeriod(); ip != nil {
+		intgPd = *ip
+	}
+
+	trgStr := optFlagString(trgOps, []string{
+		"common.TriggerDataChanged",
+		"common.TriggerQualityChanged",
+		"common.TriggerDataUpdate",
+		"common.TriggerIntegrity",
+		"common.TriggerGI",
+	})
+	optStr := optFlagString(optFields, []string{
+		"common.ReportOptSeqNum",
+		"common.ReportOptTimeStamp",
+		"common.ReportOptReasonForInclusion",
+		"common.ReportOptDataSet",
+		"common.ReportOptDataReference",
+		"common.ReportOptBufferOverflow",
+		"common.ReportOptEntryID",
+		"common.ReportOptConfRev",
+	})
+
+	for i := 0; i < maxInstances; i++ {
+		index := ""
+		if rcb.IsIndexed() {
+			index = fmt.Sprintf("%02d", i+1)
+		}
+		fmt.Fprintf(g.w, "\tiedModel.RCBs = append(iedModel.RCBs, &imodel.ReportControlBlock{\n")
+		fmt.Fprintf(g.w, "\t\tName:         %q,\n", rcb.GetName()+index)
+		fmt.Fprintf(g.w, "\t\tDataSetRef:   %q,\n", rcb.GetDataSet())
+		fmt.Fprintf(g.w, "\t\tBuffered:     true,\n")
+		fmt.Fprintf(g.w, "\t\tRptID:        %q,\n", rcb.GetRptID())
+		fmt.Fprintf(g.w, "\t\tConfRev:      %d,\n", confRev)
+		fmt.Fprintf(g.w, "\t\tTrgOps:       %s,\n", trgStr)
+		fmt.Fprintf(g.w, "\t\tOptFields:    %s,\n", optStr)
+		fmt.Fprintf(g.w, "\t\tBufTime:      %d,\n", rcb.GetBufferTime())
+		fmt.Fprintf(g.w, "\t\tIntgPd:       %d,\n", intgPd)
+		fmt.Fprintf(g.w, "\t\tIndexed:      %v,\n", rcb.IsIndexed())
+		fmt.Fprintf(g.w, "\t\tMaxInstances: 1,\n")
+		fmt.Fprintf(g.w, "\t\tLDInst:       %q,\n", ldInst)
+		fmt.Fprintf(g.w, "\t\tLNName:       %q,\n", lnName)
+		fmt.Fprintf(g.w, "\t})\n")
+	}
+	fmt.Fprintln(g.w)
+}
+
+func optFlagString(flags int, names []string) string {
+	var parts []string
+	for i, name := range names {
+		if flags&(1<<i) != 0 {
+			parts = append(parts, name)
+		}
+	}
+	if len(parts) == 0 {
+		return "0"
+	}
+	return strings.Join(parts, " | ")
 }
 
 func (g *goModelGen) emitDataSet(ds *model.DataSet, ldVar, lnVar, ldInst, lnName string) {
