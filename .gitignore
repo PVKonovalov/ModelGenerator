@@ -34,3 +34,6 @@ go.work.sum
 .DS_Store
 
 icd/
+model/
+ModelGenerator
+
