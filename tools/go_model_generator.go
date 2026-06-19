@@ -160,8 +160,10 @@ func (g *goModelGen) emitDOContent(do *model.DataObject, doVar string) {
 		g.emitTopLevelDA(da, doVar)
 	}
 	for _, subDO := range do.GetSubDataObjects() {
+		subDoVar := g.newVar("do")
+		fmt.Fprintf(g.w, "\t%s := imodel.NewSubDataObject(%q, %s)\n", subDoVar, subDO.GetName(), doVar)
 		for _, da := range subDO.GetDataAttributes() {
-			g.emitTopLevelDA(da, doVar)
+			g.emitTopLevelDA(da, subDoVar)
 		}
 	}
 }
